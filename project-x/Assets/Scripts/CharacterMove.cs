@@ -4,67 +4,82 @@ using UnityEngine;
 
 public class CharacterMove : MonoBehaviour
 {
-    public Transform cameraTransform;
-    // Transform값은 카메라 움직임에 따라 달라지므로,해당 값을 카메라에 넘겨주기 위한
-    // CameraTransform 변수 선언
-    
-    public CharacterController characterController;
-    // CharacterController에 3D 오브젝트를 적용하기 위한 characterController 변수 선언
+    public Transform cameraTransform; // 카메라 Transform
+    public CharacterController characterController; // 캐릭터 컨트롤러
 
-    public float moveSpeed = 20f;
-    // 이동 속도
-    public float jumpSpeed = 10f;
-    // 점프 속도
-    public float gravity = -20f;
-    // 중력
-    public float yVelocity = 0;
-    // Y축 움직임
+    public float maxSpeed = 20f; // 평지에서의 최대 속도
+    public float acceleration = 40f; // 가속도
+    public float deceleration = 40f; // 감속도
+    public float jumpSpeed = 10f; // 점프 속도
+    public float gravity = -20f; // 중력
+    public float slopeSlideGravity = -40f; // 경사면에서 추가 중력
+    public float slopeSpeedMultiplier = 2f; // 경사면에서 속도 증가 배율
 
-    void Start()
-    {
-        
-    }
+    private Vector3 currentVelocity = Vector3.zero; // 현재 속도
+    private float yVelocity = 0; // Y축 속도
 
     void Update()
     {
-        float h = Input.GetAxis("Horizontal");
-        // h 변수에 키보드의 가로값 (좌, 우) 을 읽어온 결과를 넘긴다.
-        // ◀, ▶, A, D 키
-        
-        float v = Input.GetAxis("Vertical");
-        // v 변수에 키보드의 세로값 (상, 하) 을 읽어온 결과를 넘긴다.
-        // ▲, ▼, W, S 키
+        float h = Input.GetAxis("Horizontal"); // 좌우 입력
+        float v = Input.GetAxis("Vertical");   // 상하 입력
 
-        Vector3 moveDirection = new Vector3(h, 0, v);
-        // (x축, y축, z축 = h 변수, 0, v 변수) 에서 읽어온 값을 Vector3으로 만듦
-        // 해당 값을 Vector3 형식의 moveDirection 값으로 넘긴다.
-        
-        moveDirection = cameraTransform.TransformDirection(moveDirection);
-        // moveDirection 값은 카메라 위치
-        
-        moveDirection *= moveSpeed;
-        // 최종적인 moveDirection 값은 moveDirection * moveSpeed 값을 서로 곱한 것.
+        Vector3 inputDirection = new Vector3(h, 0, v).normalized;
+
+        if (inputDirection.magnitude > 0.1f)
+        {
+            // 입력이 있으면 가속
+            Vector3 targetVelocity = inputDirection * maxSpeed;
+            currentVelocity = Vector3.MoveTowards(currentVelocity, targetVelocity, acceleration * Time.deltaTime);
+        }
+        else
+        {
+            // 입력이 없으면 감속
+            currentVelocity = Vector3.MoveTowards(currentVelocity, Vector3.zero, deceleration * Time.deltaTime);
+        }
+
+        // 경사면 계산
+        bool isOnSlope = IsOnSlope(out Vector3 slopeNormal);
+        if (isOnSlope)
+        {
+            // 경사면에서 추가 중력 및 속도 증가
+            Vector3 slopeDirection = Vector3.Cross(Vector3.Cross(slopeNormal, Vector3.down), slopeNormal);
+            currentVelocity += slopeDirection * slopeSpeedMultiplier * Time.deltaTime;
+            yVelocity += slopeSlideGravity * Time.deltaTime;
+        }
+
+        // 카메라 기준 방향으로 변환
+        Vector3 moveDirection = cameraTransform.TransformDirection(currentVelocity);
 
         if (characterController.isGrounded)
-        // 만약, characterController가 땅에 붙어있다면
         {
-            yVelocity = 0;
-            // y축 움직임 값은 0이고,
+            yVelocity = 0; // 땅에 있을 때 Y축 속도 초기화
+
             if (Input.GetKeyDown(KeyCode.Space))
-            // 스페이스 바 키를 통해 점프를 실시하고,
             {
-                yVelocity = jumpSpeed;
-                // 사용자가 설정한 jumpSpeed 값을 yVelocity 값으로 넘겨서 처리한다.
+                yVelocity = jumpSpeed; // 점프
             }
         }
-        
-        yVelocity += (gravity * Time.deltaTime);
-        // yVelocity 값은 yVelocity + (중력값 * Time.deltaTime)
-        
-        moveDirection.y = yVelocity;
-        // 계산한 yVelocity 값을 moveDirection.y (Y축 움직임 방향) 로 넘겨준다.
 
-        characterController.Move(moveDirection * Time.deltaTime);
-        // 최종적으로 characterController의 움직임은 방향 * Time.deltaTime 값
+        yVelocity += gravity * Time.deltaTime; // 중력 적용
+        moveDirection.y = yVelocity; // Y축 속도 추가
+
+        characterController.Move(moveDirection * Time.deltaTime); // 캐릭터 이동
+    }
+
+    private bool IsOnSlope(out Vector3 slopeNormal)
+    {
+        // 경사면인지 확인하고 경사면의 법선을 반환
+        if (characterController.isGrounded)
+        {
+            RaycastHit hit;
+            if (Physics.Raycast(transform.position, Vector3.down, out hit, characterController.height / 2 + 0.1f))
+            {
+                slopeNormal = hit.normal;
+                return Vector3.Angle(Vector3.up, slopeNormal) > characterController.slopeLimit;
+            }
+        }
+
+        slopeNormal = Vector3.up;
+        return false;
     }
 }
